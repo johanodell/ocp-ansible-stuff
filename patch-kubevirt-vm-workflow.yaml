@@ -1,0 +1,145 @@
+---
+- name: Step 1 - Create Snapshots for VirtualMachine(s)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    vm_namespace: "default"
+    vm_name: ""
+    upgrade_all_in_namespace: false
+    snapshot_prefix: "pre-patch-snapshot"
+
+  tasks:
+    - name: Display workflow information
+      debug:
+        msg:
+          - "=== VM Patching Workflow - Step 1: Snapshots ==="
+          - "Namespace: {{ vm_namespace }}"
+          - "Target: {{ 'All VMs in namespace' if upgrade_all_in_namespace else vm_name }}"
+
+    - name: Validate input parameters
+      fail:
+        msg: "Either set 'vm_name' for a single VM or set 'upgrade_all_in_namespace=true' for all VMs"
+      when:
+        - vm_name | length == 0
+        - not (upgrade_all_in_namespace | bool)
+
+    - name: Get single VM info
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ vm_name }}"
+        namespace: "{{ vm_namespace }}"
+      register: single_vm
+      when: vm_name | length > 0
+
+    - name: Fail if single VM not found
+      fail:
+        msg: "VM '{{ vm_name }}' not found in namespace '{{ vm_namespace }}'"
+      when:
+        - vm_name | length > 0
+        - single_vm.resources | length == 0
+
+    - name: Get all VMs in namespace
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        namespace: "{{ vm_namespace }}"
+      register: all_vms
+      when: upgrade_all_in_namespace | bool
+
+    - name: Build VM list for single VM
+      set_fact:
+        target_vms: "{{ single_vm.resources }}"
+      when: vm_name | length > 0
+
+    - name: Build VM list for all VMs in namespace
+      set_fact:
+        target_vms: "{{ all_vms.resources }}"
+      when: upgrade_all_in_namespace | bool
+
+    - name: Display VMs to be snapshoted
+      debug:
+        msg: "Will create snapshots for {{ target_vms | length }} VM(s): {{ target_vms | map(attribute='metadata.name') | list }}"
+
+    - name: Confirm VMs exist
+      fail:
+        msg: "No VMs found to snapshot"
+      when: target_vms | length == 0
+
+    - name: Process each VM snapshot
+      include_tasks: snapshot-vm-task.yaml
+      loop: "{{ target_vms }}"
+      loop_control:
+        loop_var: vm
+        label: "{{ vm.metadata.name }}"
+
+- name: Step 2 - Upgrade VirtualMachine(s)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    vm_namespace: "default"
+    vm_name: ""
+    upgrade_all_in_namespace: false
+    reboot_after_upgrade: true
+    reboot_timeout: 600
+    skip_broken: false
+    clean_cache: true
+    ssh_user: "rex-user"
+
+  tasks:
+    - name: Display upgrade step information
+      debug:
+        msg:
+          - "=== VM Patching Workflow - Step 2: Upgrades ==="
+          - "Namespace: {{ vm_namespace }}"
+          - "Target: {{ 'All VMs in namespace' if upgrade_all_in_namespace else vm_name }}"
+
+    - name: Validate input parameters
+      fail:
+        msg: "Either set 'vm_name' for a single VM or set 'upgrade_all_in_namespace=true' for all VMs"
+      when:
+        - vm_name | length == 0
+        - not (upgrade_all_in_namespace | bool)
+
+    - name: Get single VM info
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ vm_name }}"
+        namespace: "{{ vm_namespace }}"
+      register: single_vm
+      when: vm_name | length > 0
+
+    - name: Get all VMs in namespace
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        namespace: "{{ vm_namespace }}"
+      register: all_vms
+      when: upgrade_all_in_namespace | bool
+
+    - name: Build VM list for single VM
+      set_fact:
+        target_vms: "{{ single_vm.resources }}"
+      when: vm_name | length > 0
+
+    - name: Build VM list for all VMs in namespace
+      set_fact:
+        target_vms: "{{ all_vms.resources }}"
+      when: upgrade_all_in_namespace | bool
+
+    - name: Display VMs to be upgraded
+      debug:
+        msg: "Will upgrade {{ target_vms | length }} VM(s): {{ target_vms | map(attribute='metadata.name') | list }}"
+
+    - name: Confirm VMs exist
+      fail:
+        msg: "No VMs found to upgrade"
+      when: target_vms | length == 0
+
+    - name: Process each VM
+      include_tasks: upgrade-vm-task.yaml
+      loop: "{{ target_vms }}"
+      loop_control:
+        loop_var: vm
+        label: "{{ vm.metadata.name }}"

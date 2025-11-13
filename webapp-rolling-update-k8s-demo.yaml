@@ -1,0 +1,465 @@
+---
+- name: Rolling Update with Zero Downtime - DEMO VERSION (Fast)
+  hosts: "{{ vm_name }}"
+  become: yes
+  gather_facts: yes
+  serial: 1  # Process one server at a time
+
+  vars:
+    app_name: "ecommerce-portal"
+    app_dir: "/opt/{{ app_name }}"
+    app_user: "webapp"
+    app_port: 3000
+    app_version: "1.0.1"
+    k8s_namespace: "e-commerce-web-portal"
+    k8s_service_name: "ecommerce-portal"
+    drain_wait_time: 3  # Reduced from 10 for demo
+    health_check_retries: 3
+    health_check_delay: 1  # Reduced from 3 for demo
+    update_type: "code"  # Options: code, os, both
+    git_repo: ""
+    git_branch: "main"
+    # Delegate Kubernetes commands to this host (must have oc/kubectl access)
+    k8s_control_host: endor-infra-node
+    kubeconfig_path: "~/.kube/config"
+
+  tasks:
+    - name: Get home directory on k8s control host
+      delegate_to: "{{ k8s_control_host }}"
+      become: no  # Get the connection user's home, not root's
+      ansible.builtin.shell: "echo $HOME"
+      register: k8s_control_home
+      changed_when: false
+      run_once: yes
+      when: kubeconfig_path != "" and kubeconfig_path is search("~")
+
+    - name: Set expanded kubeconfig path
+      ansible.builtin.set_fact:
+        kubeconfig_expanded: "{{ kubeconfig_path | regex_replace('^~', k8s_control_home.stdout) if kubeconfig_path is search('~') else kubeconfig_path }}"
+      run_once: yes
+      when: kubeconfig_path != ""
+
+    - name: Display rolling update information
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Starting Rolling Update - DEMO MODE"
+          - "=========================================="
+          - "Server: {{ ansible_hostname }}"
+          - "Update Type: {{ update_type }}"
+          - "Version: {{ app_version }}"
+          - "K8s Service: {{ k8s_service_name }}"
+          - "K8s Control Host: {{ k8s_control_host }}"
+          - "Kubeconfig: {{ kubeconfig_expanded | default('default location') }}"
+          - "Serial Processing: ONE server at a time"
+          - "⚡ DEMO MODE: Faster execution, simulated OS updates"
+          - "=========================================="
+      run_once: yes
+
+    - name: Check current application status
+      ansible.builtin.uri:
+        url: "http://localhost:{{ app_port }}/health"
+        return_content: yes
+      register: pre_update_health
+      failed_when: false
+
+    - name: Display pre-update health status
+      ansible.builtin.debug:
+        msg: "Pre-update health: {{ pre_update_health.json.status | default('unhealthy') }}"
+
+    #--------------------------------------------------
+    # STEP 1: Drain server from Kubernetes service
+    # By labeling the virt-launcher pod with tier=maintenance
+    #--------------------------------------------------
+    - name: Get virt-launcher pod name
+      delegate_to: "{{ k8s_control_host }}"
+      become: no  # Run as connection user who has kubeconfig
+      ansible.builtin.shell: |
+        {% if kubeconfig_path != "" %}export KUBECONFIG={{ kubeconfig_expanded }}; {% endif %}oc get pods -n {{ k8s_namespace }} \
+          -l vm.kubevirt.io/name={{ inventory_hostname }} \
+          -o jsonpath='{.items[0].metadata.name}'
+      register: virt_launcher_pod
+      changed_when: false
+
+    - name: Display virt-launcher pod
+      ansible.builtin.debug:
+        msg: "Virt-launcher pod: {{ virt_launcher_pod.stdout }}"
+
+    - name: Drain server by changing virt-launcher pod label
+      delegate_to: "{{ k8s_control_host }}"
+      become: no  # Run as connection user who has kubeconfig
+      ansible.builtin.shell: |
+        {% if kubeconfig_path != "" %}export KUBECONFIG={{ kubeconfig_expanded }}; {% endif %}oc label pod {{ virt_launcher_pod.stdout }} \
+          -n {{ k8s_namespace }} \
+          tier=maintenance \
+          --overwrite
+      register: cordon_result
+      changed_when: cordon_result.rc == 0
+      when: virt_launcher_pod.stdout != ""
+
+    - name: Wait for service to remove endpoint
+      ansible.builtin.pause:
+        seconds: 3  # Reduced from 5 for demo
+
+    - name: Verify server removed from endpoints
+      delegate_to: "{{ k8s_control_host }}"
+      become: no  # Run as connection user who has kubeconfig
+      ansible.builtin.shell: |
+        {% if kubeconfig_path != "" %}export KUBECONFIG={{ kubeconfig_expanded }}; {% endif %}oc get endpoints {{ k8s_service_name }} -n {{ k8s_namespace }} \
+          -o jsonpath='{.subsets[*].addresses[*].ip}' | tr ' ' '\n'
+      register: active_endpoints
+      changed_when: false
+
+    - name: Get VM names for active endpoints
+      delegate_to: "{{ k8s_control_host }}"
+      become: no
+      ansible.builtin.shell: |
+        {% if kubeconfig_path != "" %}export KUBECONFIG={{ kubeconfig_expanded }}; {% endif %}for ip in {{ active_endpoints.stdout_lines | join(' ') }}; do
+          oc get vmi -n {{ k8s_namespace }} -o json | jq -r ".items[] | select(.status.interfaces[0].ipAddress==\"$ip\") | .metadata.name"
+        done
+      register: active_vm_names
+      changed_when: false
+      when: active_endpoints.stdout_lines | length > 0
+
+    - name: Display drain status
+      ansible.builtin.debug:
+        msg:
+          - "🔴 Server {{ inventory_hostname }} DRAINED from load balancer"
+          - "Active endpoints ({{ active_endpoints.stdout_lines | length }}): {{ active_vm_names.stdout_lines | default([]) | join(', ') }}"
+          - "{{ inventory_hostname }} should NOT be in the list above"
+
+    #--------------------------------------------------
+    # STEP 2: Update application code (if requested)
+    #--------------------------------------------------
+    - name: Update application code
+      block:
+        - name: Display simulated code update
+          ansible.builtin.debug:
+            msg:
+              - "🔄 Simulating application code update..."
+              - "Git repo: {{ git_repo | default('N/A') }}"
+              - "Branch: {{ git_branch }}"
+              - "Target version: {{ app_version }}"
+
+        - name: Simulate git pull delay
+          ansible.builtin.pause:
+            seconds: 2
+            prompt: "⏳ Pulling latest code from repository"
+
+        - name: Display npm install simulation
+          ansible.builtin.debug:
+            msg:
+              - "📦 Installing Node.js dependencies..."
+              - "Running: npm install --production"
+
+        - name: Simulate npm install delay
+          ansible.builtin.pause:
+            seconds: 1
+            prompt: "⏳ Installing dependencies"
+
+        - name: Display code update completion
+          ansible.builtin.debug:
+            msg: "✅ Code updated successfully to version {{ app_version }}"
+      when: update_type in ['code', 'both']
+
+    #--------------------------------------------------
+    # STEP 2b: Perform SIMULATED OS updates (if requested)
+    #--------------------------------------------------
+    - name: Perform SIMULATED OS updates
+      block:
+        - name: Display OS update start
+          ansible.builtin.debug:
+            msg:
+              - "🔄 SIMULATED OS Update (Demo Mode)"
+              - "In production, this would run: dnf update -y"
+              - "Demo: Showing fake package updates..."
+
+        - name: Simulate OS update output
+          ansible.builtin.debug:
+            msg:
+              - "======================================"
+              - "SIMULATED DNF UPDATE OUTPUT"
+              - "======================================"
+              - "Last metadata expiration check: 0:01:23 ago"
+              - "Dependencies resolved."
+              - "======================================"
+              - " Package                   Version                Repository    Size"
+              - "======================================"
+              - "Upgrading:"
+              - " kernel                    6.6.8-200.fc41         updates      7.2 M"
+              - " systemd                   255.2-1.fc41           updates      5.8 M"
+              - " openssl-libs              3.1.1-4.fc41           updates      2.1 M"
+              - " curl                      8.5.0-1.fc41           updates      456 k"
+              - " python3                   3.12.1-1.fc41          updates      32 k"
+              - ""
+              - "Transaction Summary"
+              - "======================================"
+              - "Upgrade  5 Packages"
+              - ""
+              - "Total download size: 15 M"
+              - "Downloading Packages:"
+              - "[####################] 100% - 15 MB/s"
+
+        - name: Simulate package installation delay
+          ansible.builtin.pause:
+            seconds: 3
+            prompt: "⏳ Simulating package installation (3 seconds)"
+
+        - name: Display OS update completion
+          ansible.builtin.debug:
+            msg:
+              - "Running transaction check"
+              - "Running transaction test"
+              - "Transaction test succeeded"
+              - "Running transaction"
+              - "  Upgrading    : kernel-6.6.8-200.fc41"
+              - "  Upgrading    : systemd-255.2-1.fc41"
+              - "  Upgrading    : openssl-libs-3.1.1-4.fc41"
+              - "  Upgrading    : curl-8.5.0-1.fc41"
+              - "  Upgrading    : python3-3.12.1-1.fc41"
+              - "  Cleanup      : [old packages]"
+              - ""
+              - "✅ Complete!"
+              - "  5 packages upgraded"
+
+        - name: Simulate reboot check
+          ansible.builtin.debug:
+            msg:
+              - "🔍 Checking if system reboot is required..."
+              - "Running: needs-restarting -r"
+              - "Result: System reboot IS required (kernel updated)"
+
+        - name: Set simulated reboot flag
+          ansible.builtin.set_fact:
+            needs_reboot:
+              rc: 1  # Simulate that reboot is needed
+              changed: true
+
+        - name: Display OS update summary
+          ansible.builtin.debug:
+            msg:
+              - "OS updates installed: True (simulated)"
+              - "Reboot needed: True (simulated)"
+      when: update_type in ['os', 'both']
+
+    #--------------------------------------------------
+    # STEP 3: Restart application service
+    #--------------------------------------------------
+    - name: Restart application service
+      ansible.builtin.service:
+        name: "{{ app_name }}"
+        state: restarted
+
+    - name: Wait for application to start
+      ansible.builtin.wait_for:
+        port: "{{ app_port }}"
+        delay: 1  # Reduced from 2 for demo
+        timeout: 15  # Reduced from 30 for demo
+
+    #--------------------------------------------------
+    # STEP 4: Perform SIMULATED reboot if required
+    #--------------------------------------------------
+    - name: Perform SIMULATED system reboot
+      block:
+        - name: Display reboot simulation
+          ansible.builtin.debug:
+            msg:
+              - "🔄 SIMULATED REBOOT (Demo Mode)"
+              - "In production, this would reboot the server"
+              - "Demo: Simulating 10-second reboot cycle..."
+              - "⏳ Server going down..."
+
+        - name: Simulate reboot delay
+          ansible.builtin.pause:
+            seconds: 5
+            prompt: "⏳ Simulating server reboot (5 seconds)"
+
+        - name: Display reboot completion
+          ansible.builtin.debug:
+            msg:
+              - "✅ Server back online (simulated)"
+              - "System uptime: 0 minutes (simulated)"
+              - "All services started successfully"
+
+        - name: Restart application after simulated reboot
+          ansible.builtin.service:
+            name: "{{ app_name }}"
+            state: restarted
+
+        - name: Wait for application to start after simulated reboot
+          ansible.builtin.wait_for:
+            port: "{{ app_port }}"
+            delay: 2
+            timeout: 15
+      when:
+        - update_type in ['os', 'both']
+        - (needs_reboot.rc | default(0)) == 1
+
+    #--------------------------------------------------
+    # STEP 5: Verify application health
+    #--------------------------------------------------
+    - name: Check application health after update
+      ansible.builtin.uri:
+        url: "http://localhost:{{ app_port }}/health"
+        return_content: yes
+      register: post_update_health
+      retries: "{{ health_check_retries }}"
+      delay: "{{ health_check_delay }}"
+      until: post_update_health.status == 200
+
+    - name: Validate health check response
+      ansible.builtin.assert:
+        that:
+          - post_update_health.json.status == "healthy"
+        success_msg: "Server is healthy after update"
+        fail_msg: "Server health check failed after update"
+
+    #--------------------------------------------------
+    # STEP 6: Re-enable server in Kubernetes service
+    # By restoring the webserver label on virt-launcher pod
+    #--------------------------------------------------
+    - name: Uncordon server by restoring virt-launcher pod label
+      delegate_to: "{{ k8s_control_host }}"
+      become: no  # Run as connection user who has kubeconfig
+      ansible.builtin.shell: |
+        {% if kubeconfig_path != "" %}export KUBECONFIG={{ kubeconfig_expanded }}; {% endif %}oc label pod {{ virt_launcher_pod.stdout }} \
+          -n {{ k8s_namespace }} \
+          tier=webserver \
+          --overwrite
+      register: uncordon_result
+      changed_when: uncordon_result.rc == 0
+      when: virt_launcher_pod.stdout != ""
+
+    - name: Wait for server to be added to endpoints
+      ansible.builtin.pause:
+        seconds: 3  # Reduced from 5 for demo
+
+    - name: Verify server is back in endpoints
+      delegate_to: "{{ k8s_control_host }}"
+      become: no  # Run as connection user who has kubeconfig
+      ansible.builtin.shell: |
+        {% if kubeconfig_path != "" %}export KUBECONFIG={{ kubeconfig_expanded }}; {% endif %}oc get endpoints {{ k8s_service_name }} -n {{ k8s_namespace }} \
+          -o jsonpath='{.subsets[*].addresses[*].ip}' | tr ' ' '\n'
+      register: final_endpoints
+      changed_when: false
+      retries: 3
+      delay: 1  # Reduced from 2 for demo
+
+    - name: Get VM names for final endpoints
+      delegate_to: "{{ k8s_control_host }}"
+      become: no
+      ansible.builtin.shell: |
+        {% if kubeconfig_path != "" %}export KUBECONFIG={{ kubeconfig_expanded }}; {% endif %}for ip in {{ final_endpoints.stdout_lines | join(' ') }}; do
+          oc get vmi -n {{ k8s_namespace }} -o json | jq -r ".items[] | select(.status.interfaces[0].ipAddress==\"$ip\") | .metadata.name"
+        done
+      register: final_vm_names
+      changed_when: false
+      when: final_endpoints.stdout_lines | length > 0
+
+    - name: Get this VM's IP for verification
+      ansible.builtin.set_fact:
+        vm_ip: "{{ ansible_default_ipv4.address }}"
+
+    - name: Display uncordon status
+      ansible.builtin.debug:
+        msg:
+          - "✅ Server {{ inventory_hostname }} RESTORED to load balancer"
+          - "All endpoints ({{ final_endpoints.stdout_lines | length }}): {{ final_vm_names.stdout_lines | default([]) | join(', ') }}"
+          - "{{ inventory_hostname }} SHOULD be in the list above"
+
+    #--------------------------------------------------
+    # STEP 7: Final validation
+    #--------------------------------------------------
+    - name: Get LoadBalancer IP
+      delegate_to: "{{ k8s_control_host }}"
+      become: no  # Run as connection user who has kubeconfig
+      ansible.builtin.shell: |
+        {% if kubeconfig_path != "" %}export KUBECONFIG={{ kubeconfig_expanded }}; {% endif %}oc get svc {{ k8s_service_name }} -n {{ k8s_namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+      register: lb_ip
+      changed_when: false
+
+    - name: Display update completion summary
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Update Complete for {{ ansible_hostname }}"
+          - "=========================================="
+          - "Pre-update status: {{ pre_update_health.json.status | default('unknown') }}"
+          - "Post-update status: {{ post_update_health.json.status }}"
+          - "K8s Service: {{ k8s_service_name }}"
+          - "LoadBalancer IP: {{ lb_ip.stdout }}"
+          - "Server back in rotation: YES"
+          - "=========================================="
+
+- name: Display final summary
+  hosts: "{{ vm_name }}"
+  gather_facts: no
+  run_once: yes
+
+  tasks:
+    - name: Display completion banner
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "✅ ROLLING UPDATE COMPLETE - DEMO MODE"
+          - "=========================================="
+          - "All servers updated successfully"
+          - "Zero downtime deployment completed!"
+          - "⚡ Demo mode: Faster execution with simulated OS updates"
+          - "=========================================="
+      run_once: yes
+
+- name: Verify Kubernetes Service Health
+  hosts: "{{ k8s_control_host | default('localhost') }}"
+  gather_facts: no
+  become: no
+
+  vars:
+    k8s_namespace: "e-commerce-web-portal"
+    k8s_service_name: "ecommerce-portal"
+    k8s_control_host: "endor-infra-node"
+    kubeconfig_path: "~/.kube/config"
+
+  tasks:
+    - name: Get home directory for kubeconfig expansion
+      ansible.builtin.shell: "echo $HOME"
+      register: k8s_home_dir
+      changed_when: false
+      when: kubeconfig_path != "" and kubeconfig_path is search("~")
+
+    - name: Set expanded kubeconfig path
+      ansible.builtin.set_fact:
+        kubeconfig_expanded: "{{ kubeconfig_path | regex_replace('^~', k8s_home_dir.stdout) if kubeconfig_path is search('~') else kubeconfig_path }}"
+      when: kubeconfig_path != ""
+
+    - name: Get Service details
+      ansible.builtin.shell: |
+        {% if kubeconfig_path != "" %}export KUBECONFIG={{ kubeconfig_expanded }}; {% endif %}oc get svc {{ k8s_service_name }} -n {{ k8s_namespace }} -o json
+      register: service_json
+      changed_when: false
+
+    - name: Get Service endpoints
+      ansible.builtin.shell: |
+        {% if kubeconfig_path != "" %}export KUBECONFIG={{ kubeconfig_expanded }}; {% endif %}oc get endpoints {{ k8s_service_name }} -n {{ k8s_namespace }} -o json
+      register: endpoints_json
+      changed_when: false
+
+    - name: Parse service info
+      ansible.builtin.set_fact:
+        service_info: "{{ service_json.stdout | from_json }}"
+        endpoints_info: "{{ endpoints_json.stdout | from_json }}"
+
+    - name: Display Kubernetes Service Status
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Kubernetes Service Health Check"
+          - "=========================================="
+          - "Service: {{ service_info.metadata.name }}"
+          - "Namespace: {{ service_info.metadata.namespace }}"
+          - "Type: {{ service_info.spec.type }}"
+          - "LoadBalancer IP: {{ service_info.status.loadBalancer.ingress[0].ip | default('Pending') }}"
+          - "Selector: app={{ service_info.spec.selector.app }}, tier={{ service_info.spec.selector.tier }}"
+          - "Session Affinity: {{ service_info.spec.sessionAffinity }}"
+          - "Endpoints: {{ endpoints_info.subsets[0].addresses | length if endpoints_info.subsets else 0 }}"
+          - "=========================================="

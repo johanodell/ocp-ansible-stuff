@@ -1,0 +1,17 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: AnsibleProject
+metadata:
+  name: ansible-playbooks
+  namespace: aap
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  repo: https://github.com/your-username/your-repo.git
+  branch: main
+  name: ansible-playbooks
+  scm_type: git
+  scm_credential: srccontrol-github
+  organization: Default
+  description: 'ansible-playbooks'
+  connection_secret: aap-controller-access

@@ -1,0 +1,15 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: JobTemplate
+metadata:
+  name: image-push-image-2-quay
+spec:
+  connection_secret: aap-controller-access
+  name: image-push-image-2-quay
+  project: ansible-playbooks 
+  playbook: push_image_2_quay.yaml
+  inventory: openshift-endor
+  execution_environment: "Default execution environment"
+  credentials: 
+    - "openshift-endor"
+    - "infra-machine"
+    - "quay.io-playbooks"

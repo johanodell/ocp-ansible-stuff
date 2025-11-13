@@ -1,0 +1,495 @@
+---
+- name: Web Application Server Setup - Final Version
+  hosts: "{{ vm_name }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    app_name: "ecommerce-portal"
+    app_dir: "/opt/{{ app_name }}"
+    app_user: "webapp"
+    app_port: 3000
+    node_version: "18"
+    app_version: "1.0.0"
+    git_repo: "https://github.com/your-username/your-app-repo.git"
+
+  tasks:
+    - name: Install Node.js repository (RedHat/Fedora)
+      ansible.builtin.shell: |
+        curl -fsSL https://rpm.nodesource.com/setup_{{ node_version }}.x | bash -
+      args:
+        creates: /etc/yum.repos.d/nodesource-el*.repo
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Install required packages
+      ansible.builtin.package:
+        name:
+          - nodejs
+          - git
+          - firewalld
+          - policycoreutils-python-utils
+        state: present
+
+    - name: Create application user
+      ansible.builtin.user:
+        name: "{{ app_user }}"
+        comment: "Web Application User"
+        shell: /bin/bash
+        home: "{{ app_dir }}"
+        create_home: false
+        system: true
+
+    - name: Deploy application from Git repository
+      block:
+        - name: Clone application from Git to temporary location
+          ansible.builtin.git:
+            repo: "{{ git_repo }}"
+            dest: "/tmp/ecommerce-portal-repo"
+            version: main
+            force: yes
+          become_user: root
+
+        - name: Create application directory
+          ansible.builtin.file:
+            path: "{{ app_dir }}"
+            state: directory
+            owner: "{{ app_user }}"
+            group: "{{ app_user }}"
+            mode: "0755"
+
+        - name: Copy application files from Git repo
+          ansible.builtin.copy:
+            src: "/tmp/ecommerce-portal-repo/"
+            dest: "{{ app_dir }}/"
+            remote_src: yes
+            owner: "{{ app_user }}"
+            group: "{{ app_user }}"
+            mode: preserve
+
+        - name: Clean up temporary Git clone
+          ansible.builtin.file:
+            path: "/tmp/ecommerce-portal-repo"
+            state: absent
+      when: git_repo != ""
+
+    - name: Create application subdirectories
+      ansible.builtin.file:
+        path: "{{ app_dir }}/{{ item }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
+      loop:
+        - logs
+        - tmp
+        - public
+        - config
+
+    - name: Set SELinux context for logs directory
+      become: true
+      command: semanage fcontext -a -t var_log_t "{{ app_dir }}/logs(/.*)?"
+      changed_when: false
+      failed_when: false
+
+    - name: Restore SELinux context on logs directory
+      become: true
+      command: restorecon -Rv "{{ app_dir }}/logs"
+      changed_when: false
+      failed_when: false
+
+    - name: Check if package.json exists
+      ansible.builtin.stat:
+        path: "{{ app_dir }}/package.json"
+      register: package_json_check
+
+    - name: Create package.json if not present
+      ansible.builtin.copy:
+        content: |
+          {
+            "name": "{{ app_name }}",
+            "version": "{{ app_version }}",
+            "description": "E-Commerce Web Portal Demo",
+            "main": "server.js",
+            "scripts": {
+              "start": "node server.js",
+              "dev": "nodemon server.js"
+            },
+            "dependencies": {
+              "express": "^4.18.2"
+            },
+            "engines": {
+              "node": ">={{ node_version }}"
+            }
+          }
+        dest: "{{ app_dir }}/package.json"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0644"
+      when: not package_json_check.stat.exists
+
+    - name: Check if server.js exists
+      ansible.builtin.stat:
+        path: "{{ app_dir }}/server.js"
+      register: server_js_check
+
+    - name: Create full HTML Node.js application
+      ansible.builtin.copy:
+        content: |
+          const express = require('express');
+          const os = require('os');
+          const fs = require('fs');
+          const app = express();
+          const port = {{ app_port }};
+
+          // Request logging middleware
+          app.use((req, res, next) => {
+            const timestamp = new Date().toISOString();
+            const log = `${timestamp} - ${req.method} ${req.url} - ${req.ip}\n`;
+            fs.appendFileSync('{{ app_dir }}/logs/access.log', log);
+            next();
+          });
+
+          // Serve static files
+          app.use(express.static('public'));
+          app.use(express.json());
+
+          // Server info
+          const serverInfo = {
+            hostname: os.hostname(),
+            platform: os.platform(),
+            uptime: process.uptime(),
+            memory: process.memoryUsage(),
+            version: '{{ app_version }}'
+          };
+
+          // Health check endpoint
+          app.get('/health', (req, res) => {
+            res.status(200).json({
+              status: 'healthy',
+              hostname: os.hostname(),
+              uptime: process.uptime(),
+              timestamp: new Date().toISOString()
+            });
+          });
+
+          // Main page with full HTML
+          app.get('/', (req, res) => {
+            res.send(`
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <title>E-Commerce Portal</title>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <style>
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  body {
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                    padding: 20px;
+                  }
+                  .container {
+                    max-width: 1200px;
+                    margin: 50px auto;
+                    background: white;
+                    border-radius: 15px;
+                    padding: 40px;
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                  }
+                  h1 {
+                    color: #667eea;
+                    margin-bottom: 10px;
+                    font-size: 2.5em;
+                  }
+                  .subtitle {
+                    color: #666;
+                    margin-bottom: 30px;
+                    font-size: 1.2em;
+                  }
+                  .server-info {
+                    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+                    padding: 25px;
+                    border-radius: 10px;
+                    margin: 30px 0;
+                    border-left: 5px solid #667eea;
+                  }
+                  .server-info h3 {
+                    color: #333;
+                    margin-bottom: 15px;
+                  }
+                  .server-info p {
+                    margin: 8px 0;
+                    color: #555;
+                  }
+                  .server-info strong {
+                    color: #667eea;
+                  }
+                  .badge {
+                    display: inline-block;
+                    background: #667eea;
+                    color: white;
+                    padding: 6px 12px;
+                    border-radius: 20px;
+                    font-size: 0.85em;
+                    margin: 5px 5px 5px 0;
+                    font-weight: 600;
+                  }
+                  .products {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                    gap: 25px;
+                    margin: 40px 0;
+                  }
+                  .product {
+                    background: white;
+                    border: 2px solid #e0e0e0;
+                    border-radius: 12px;
+                    padding: 25px;
+                    transition: all 0.3s ease;
+                    cursor: pointer;
+                  }
+                  .product:hover {
+                    transform: translateY(-8px);
+                    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+                    border-color: #667eea;
+                  }
+                  .product h3 {
+                    color: #333;
+                    margin-bottom: 10px;
+                    font-size: 1.4em;
+                  }
+                  .product p {
+                    color: #666;
+                    margin-bottom: 15px;
+                    line-height: 1.6;
+                  }
+                  .price {
+                    color: #667eea;
+                    font-size: 28px;
+                    font-weight: bold;
+                  }
+                  .section-title {
+                    color: #333;
+                    margin: 40px 0 20px 0;
+                    font-size: 2em;
+                  }
+                  footer {
+                    text-align: center;
+                    margin-top: 50px;
+                    padding-top: 30px;
+                    border-top: 2px solid #e0e0e0;
+                    color: #666;
+                  }
+                  .demo-banner {
+                    background: #ffeaa7;
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin-bottom: 30px;
+                    border-left: 5px solid #fdcb6e;
+                  }
+                  .demo-banner strong {
+                    color: #d63031;
+                  }
+                </style>
+              </head>
+              <body>
+                <div class="container">
+                  <div class="demo-banner">
+                    <strong>🚀 DEMO MODE:</strong> This is a demonstration of zero-downtime deployments with Ansible Automation Platform & MetalLB LoadBalancer
+                  </div>
+
+                  <h1>🛒 E-Commerce Portal</h1>
+                  <p class="subtitle">High-Availability Web Application Demo</p>
+
+                  <div class="server-info">
+                    <h3>📊 Backend Server Information</h3>
+                    <p><strong>Hostname:</strong> ${serverInfo.hostname}</p>
+                    <p><strong>Version:</strong> ${serverInfo.version}</p>
+                    <p><strong>Platform:</strong> ${serverInfo.platform}</p>
+                    <p><strong>Uptime:</strong> ${Math.floor(serverInfo.uptime)} seconds</p>
+                    <p><strong>Memory Usage:</strong> ${Math.round(serverInfo.memory.heapUsed / 1024 / 1024)} MB</p>
+                    <div style="margin-top: 15px;">
+                      <span class="badge">✅ Load Balanced</span>
+                      <span class="badge">🔄 Zero Downtime</span>
+                      <span class="badge">🔧 Auto-Healing</span>
+                      <span class="badge">📦 Kubernetes Native</span>
+                    </div>
+                  </div>
+
+                  <h2 class="section-title">Featured Products</h2>
+                  <div class="products">
+                    <div class="product">
+                      <h3>🎮 Gaming Laptop</h3>
+                      <p>Ultra high-performance laptop with RTX 4090 graphics, perfect for gaming and content creation</p>
+                      <div class="price">$1,299</div>
+                    </div>
+                    <div class="product">
+                      <h3>📱 Smartphone Pro</h3>
+                      <p>Latest flagship smartphone with AI-powered camera and 5G connectivity</p>
+                      <div class="price">$899</div>
+                    </div>
+                    <div class="product">
+                      <h3>🎧 Wireless Headphones</h3>
+                      <p>Premium noise-cancelling headphones with 40-hour battery life</p>
+                      <div class="price">$299</div>
+                    </div>
+                    <div class="product">
+                      <h3>⌚ Smart Watch Ultra</h3>
+                      <p>Advanced fitness and health tracking with GPS and cellular</p>
+                      <div class="price">$399</div>
+                    </div>
+                    <div class="product">
+                      <h3>💻 4K Monitor</h3>
+                      <p>Professional-grade 32" 4K display with HDR and 144Hz refresh rate</p>
+                      <div class="price">$599</div>
+                    </div>
+                    <div class="product">
+                      <h3>⌨️ Mechanical Keyboard</h3>
+                      <p>RGB backlit mechanical keyboard with hot-swappable switches</p>
+                      <div class="price">$179</div>
+                    </div>
+                  </div>
+
+                  <footer>
+                    <p><strong>Powered by Ansible Automation Platform</strong></p>
+                    <p>Rolling Updates • Zero Downtime • MetalLB LoadBalancer • KubeVirt VMs</p>
+                    <p style="margin-top: 10px; font-size: 0.9em;">
+                      Refresh this page to see different backend servers handling your requests
+                    </p>
+                  </footer>
+                </div>
+              </body>
+              </html>
+            `);
+          });
+
+          // API endpoint for products
+          app.get('/api/products', (req, res) => {
+            const products = [
+              { id: 1, name: 'Gaming Laptop', price: 1299, category: 'Electronics', stock: 15 },
+              { id: 2, name: 'Smartphone Pro', price: 899, category: 'Electronics', stock: 42 },
+              { id: 3, name: 'Wireless Headphones', price: 299, category: 'Audio', stock: 87 },
+              { id: 4, name: 'Smart Watch Ultra', price: 399, category: 'Wearables', stock: 23 },
+              { id: 5, name: '4K Monitor', price: 599, category: 'Electronics', stock: 31 },
+              { id: 6, name: 'Mechanical Keyboard', price: 179, category: 'Accessories', stock: 64 }
+            ];
+            res.json({
+              products,
+              server: os.hostname(),
+              timestamp: new Date().toISOString()
+            });
+          });
+
+          // Start server
+          app.listen(port, '0.0.0.0', () => {
+            console.log(`E-Commerce Portal running on port ${port}`);
+            console.log(`Server: ${serverInfo.hostname}`);
+            console.log(`Health check: http://localhost:${port}/health`);
+          });
+
+          // Graceful shutdown
+          process.on('SIGTERM', () => {
+            console.log('SIGTERM received, shutting down gracefully');
+            process.exit(0);
+          });
+        dest: "{{ app_dir }}/server.js"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0644"
+      when: not server_js_check.stat.exists
+
+    - name: Install Node.js dependencies
+      ansible.builtin.command:
+        cmd: npm install --production
+        chdir: "{{ app_dir }}"
+      become_user: root  # Changed to root to avoid permission issues
+      changed_when: false
+
+    - name: Create systemd service file
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description={{ app_name }} Web Application
+          After=network.target
+
+          [Service]
+          Type=simple
+          User={{ app_user }}
+          Group={{ app_user }}
+          WorkingDirectory={{ app_dir }}
+          ExecStart=/usr/bin/node {{ app_dir }}/server.js
+          Restart=always
+          RestartSec=10
+          StandardOutput=append:{{ app_dir }}/logs/app.log
+          StandardError=append:{{ app_dir }}/logs/error.log
+
+          # Security hardening
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=strict
+          ProtectHome=true
+          ReadWritePaths={{ app_dir }}/logs {{ app_dir }}/tmp
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: "/etc/systemd/system/{{ app_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart webapp
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Configure firewall for application
+      ansible.posix.firewalld:
+        port: "{{ app_port }}/tcp"
+        permanent: true
+        state: enabled
+        immediate: true
+      when: ansible_facts['os_family'] == 'RedHat'
+      ignore_errors: true
+
+    - name: Enable and start application service
+      ansible.builtin.service:
+        name: "{{ app_name }}"
+        state: started
+        enabled: true
+
+    - name: Wait for application to be ready
+      ansible.builtin.wait_for:
+        port: "{{ app_port }}"
+        delay: 2
+        timeout: 30
+
+    - name: Check application health
+      ansible.builtin.uri:
+        url: "http://localhost:{{ app_port }}/health"
+        return_content: true
+      register: health_check
+      retries: 3
+      delay: 2
+
+    - name: Display application setup summary
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Web Application Setup Complete"
+          - "=========================================="
+          - "Application: {{ app_name }}"
+          - "Version: {{ app_version }}"
+          - "Server: {{ ansible_hostname }}"
+          - "URL: http://{{ ansible_default_ipv4.address }}:{{ app_port }}"
+          - "Health: {{ (health_check.json).status }}"
+          - "User: {{ app_user }}"
+          - "Directory: {{ app_dir }}"
+          - "Logs: {{ app_dir }}/logs/"
+          - "=========================================="
+
+  handlers:
+    - name: restart webapp
+      ansible.builtin.service:
+        name: "{{ app_name }}"
+        state: restarted

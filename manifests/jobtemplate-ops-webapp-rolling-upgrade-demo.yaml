@@ -1,0 +1,13 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: JobTemplate
+metadata:
+  name: ops-webapp-rolling-upgrade-demo
+spec:
+  connection_secret: aap-controller-access
+  name: ops-webapp-rolling-upgrade-demo
+  project: ansible-playbooks 
+  playbook: webapp-rolling-update-k8s-demo.yaml
+  inventory: openshift-endor
+  execution_environment: "Default execution environment" 
+  credentials: 
+    - "ansible-machine"

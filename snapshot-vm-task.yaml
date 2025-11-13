@@ -1,0 +1,45 @@
+---
+- name: Generate snapshot name for {{ vm.metadata.name }}
+  set_fact:
+    current_snapshot_name: "{{ snapshot_prefix }}-{{ vm.metadata.name }}-{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
+
+- name: Create VirtualMachineSnapshot for {{ vm.metadata.name }}
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: snapshot.kubevirt.io/v1beta1
+      kind: VirtualMachineSnapshot
+      metadata:
+        name: "{{ current_snapshot_name }}"
+        namespace: "{{ vm.metadata.namespace }}"
+        labels:
+          snapshot-type: "pre-patch"
+          vm-name: "{{ vm.metadata.name }}"
+      spec:
+        source:
+          apiGroup: kubevirt.io
+          kind: VirtualMachine
+          name: "{{ vm.metadata.name }}"
+  register: snapshot_created
+
+- name: Wait for snapshot {{ current_snapshot_name }} to be ready
+  kubernetes.core.k8s_info:
+    api_version: snapshot.kubevirt.io/v1beta1
+    kind: VirtualMachineSnapshot
+    name: "{{ current_snapshot_name }}"
+    namespace: "{{ vm.metadata.namespace }}"
+  register: snapshot_status
+  until:
+    - snapshot_status.resources | length > 0
+    - snapshot_status.resources[0].status.readyToUse is defined
+    - snapshot_status.resources[0].status.readyToUse == true
+  retries: 60
+  delay: 10
+
+- name: Display snapshot information
+  debug:
+    msg:
+      - "Snapshot created successfully for VM: {{ vm.metadata.name }}"
+      - "Snapshot name: {{ current_snapshot_name }}"
+      - "Namespace: {{ vm.metadata.namespace }}"
+      - "Ready to use: {{ snapshot_status.resources[0].status.readyToUse }}"

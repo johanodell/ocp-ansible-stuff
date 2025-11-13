@@ -1,0 +1,13 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: JobTemplate
+metadata:
+  name: ops-win-deploy-vm 
+spec:
+  connection_secret: aap-controller-access
+  name: ops-win-deploy-vm
+  project: ansible-playbooks 
+  playbook: deploy_win_server.yaml
+  inventory: openshift-endor
+  execution_environment: "Default execution environment" 
+  credentials: 
+    - "openshift-endor"

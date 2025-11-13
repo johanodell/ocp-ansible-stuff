@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ecommerce-portal
+  namespace: e-commerce
+  labels:
+    app: ecommerce-portal
+    tier: frontend
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: ""
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+  selector:
+    app: ecommerce-portal
+    tier: webserver
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: 3000
+  - name: https
+    port: 443
+    protocol: TCP
+    targetPort: 3000

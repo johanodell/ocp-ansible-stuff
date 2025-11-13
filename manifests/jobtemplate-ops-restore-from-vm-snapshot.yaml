@@ -1,0 +1,13 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: JobTemplate
+metadata:
+  name: ops-restore-from-vm-snapshot 
+spec:
+  connection_secret: aap-controller-access
+  name: ops-restore-from-vm-snapshot
+  project: ansible-playbooks 
+  playbook: restore-vm-snapshot.yaml
+  inventory: openshift-endor
+  execution_environment: "Default execution environment" 
+  credentials: 
+    - "openshift-endor"

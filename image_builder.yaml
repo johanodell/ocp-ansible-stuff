@@ -1,0 +1,52 @@
+---
+- name: Determine Image Builder Host
+  hosts: localhost
+  gather_facts: false
+  vars:
+    rhel_image_blueprint: rhel-9-soe
+    # Dictionary mapping blueprint prefixes to image builder hosts
+    image_builder_hosts:
+      rhel-9: "rhel9-image-builder"
+      rhel9: "rhel9-image-builder"
+      rhel-10: "rhel10-image-builder"
+      rhel10: "rhel10-image-builder"
+  tasks:
+    - name: Extract RHEL version from blueprint name
+      set_fact:
+        rhel_version_prefix: "{{ rhel_image_blueprint | regex_search('^rhel-?\\d+') }}"
+
+    - name: Set target image builder host
+      set_fact:
+        target_image_builder: "{{ image_builder_hosts[rhel_version_prefix] | default('rhel9-image-builder') }}"
+
+    - name: Display selected image builder
+      debug:
+        msg: "Using image builder host: {{ target_image_builder }} for blueprint: {{ rhel_image_blueprint }}"
+
+    - name: Add image builder to in-memory inventory
+      add_host:
+        name: "{{ target_image_builder }}"
+        groups: image_builders
+
+- name: Build RHEL image with Image Builder
+  hosts: image_builders
+  become: true
+  vars:
+    rhel_image_update_host: false
+
+    rhel_image_git_remote_repo: https://github.com/your-username/rhel-image-blueprints.git # example blueprint
+    rhel_image_git_repo_checkout: main
+    rhel_image_blueprint: rhel-9-soe
+    rhel_image_output_type: qcow2
+    # Optional image filename to use instead of UUID
+    rhel_image_filename: ci-weekly-rhel9-image.qcow2
+
+    # This is on the build host
+    rhel_image_download_dir: /tmp/images
+    # Fetch from the build host
+    rhel_image_fetch_image: false
+    # This is where this playbook runs
+    # rhel_image_fetch_directory: /tmp
+    rhel_image_remote_delete: true
+  roles:
+    - myllynen.rhel_image.rhel_image

@@ -1,0 +1,92 @@
+---
+- name: Label e-commerce portal VMs, VMIs, and virt-launcher pods
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    target_namespace: "e-commerce"
+    app_label: "ecommerce-portal"
+    tier_label: "webserver"
+
+  tasks:
+    - name: Get all VMs in namespace
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        namespace: "{{ target_namespace }}"
+      register: vms
+
+    - name: Get all VMIs in namespace
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachineInstance
+        namespace: "{{ target_namespace }}"
+      register: vmis
+
+    - name: Get all virt-launcher pods in namespace
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ target_namespace }}"
+        label_selectors:
+          - kubevirt.io=virt-launcher
+      register: pods
+
+    - name: Display resources found
+      debug:
+        msg:
+          - "VMs found: {{ vms.resources | length }}"
+          - "VMIs found: {{ vmis.resources | length }}"
+          - "virt-launcher pods found: {{ pods.resources | length }}"
+
+    - name: Label VirtualMachines
+      kubernetes.core.k8s:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ target_namespace }}"
+        state: patched
+        definition:
+          metadata:
+            labels:
+              app: "{{ app_label }}"
+              tier: "{{ tier_label }}"
+      loop: "{{ vms.resources }}"
+      when: vms.resources | length > 0
+
+    - name: Label VirtualMachineInstances
+      kubernetes.core.k8s:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachineInstance
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ target_namespace }}"
+        state: patched
+        definition:
+          metadata:
+            labels:
+              app: "{{ app_label }}"
+              tier: "{{ tier_label }}"
+      loop: "{{ vmis.resources }}"
+      when: vmis.resources | length > 0
+
+    - name: Label virt-launcher pods
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Pod
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ target_namespace }}"
+        state: patched
+        definition:
+          metadata:
+            labels:
+              app: "{{ app_label }}"
+              tier: "{{ tier_label }}"
+      loop: "{{ pods.resources }}"
+      when: pods.resources | length > 0
+
+    - name: Display completion message
+      debug:
+        msg:
+          - "✓ All resources have been labeled successfully!"
+          - "Verify with: kubectl get vm,vmi,pod -n {{ target_namespace }} --show-labels"
+          - "Check service endpoints: kubectl get endpoints ecommerce-portal -n {{ target_namespace }}"

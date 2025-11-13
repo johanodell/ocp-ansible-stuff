@@ -1,0 +1,37 @@
+# Ansible
+*.retry
+.ansible/
+collections/ansible_collections/
+
+# Sensitive files
+*.key
+*.pem
+*.p12
+*.pfx
+*.secret
+*.vault
+*credentials*
+*password*
+.env
+.env.*
+vault.yml
+vault.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local testing
+inventory/
+test-inventory/
+*.test
+
+# Logs
+*.log

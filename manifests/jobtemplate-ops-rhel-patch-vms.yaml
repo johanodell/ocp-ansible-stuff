@@ -1,0 +1,14 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: JobTemplate
+metadata:
+  name: ops-rhel-patch-vms 
+spec:
+  connection_secret: aap-controller-access
+  name: ops-rhel-patch-vms
+  project: ansible-playbooks 
+  playbook: patch-kubevirt-vm-workflow.yaml
+  inventory: openshift-endor
+  execution_environment: "Default execution environment" 
+  credentials: 
+    - "openshift-endor"
+    - "ansible-machine"

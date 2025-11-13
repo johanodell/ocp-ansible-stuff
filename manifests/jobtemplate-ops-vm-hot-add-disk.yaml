@@ -1,0 +1,13 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: JobTemplate
+metadata:
+  name: ops-vm-hot-add-disk 
+spec:
+  connection_secret: aap-controller-access
+  name: ops-vm-hot-add-disk
+  project: ansible-playbooks 
+  playbook: vm-hot-add-disk-survey.yaml
+  inventory: openshift-endor
+  execution_environment: "Default execution environment" 
+  credentials: 
+    - "openshift-endor"

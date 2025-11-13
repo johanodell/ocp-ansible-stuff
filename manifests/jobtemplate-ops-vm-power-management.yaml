@@ -1,0 +1,13 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: JobTemplate
+metadata:
+  name: ops-vm-power-management
+spec:
+  connection_secret: aap-controller-access
+  name: ops-vm-power-management
+  project: ansible-playbooks 
+  playbook: manage-vms.yaml
+  inventory: openshift-endor
+  execution_environment: "Default execution environment" 
+  credentials: 
+    - "openshift-endor"

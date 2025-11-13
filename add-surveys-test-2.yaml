@@ -1,0 +1,723 @@
+---
+- name: Configure Surveys on AAP Job Templates
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - infra.aap_configuration
+
+  vars:
+    # AAP connection details (should come from environment or secrets)
+    #aap_hostname: 
+    #aap_token: "{{ lookup('env', 'CONTROLLER_OAUTH_TOKEN') | default('') }}"
+    #aap_username: 
+    #aap_password: 
+    #aap_validate_certs: false
+
+    # Job templates with surveys to configure
+    controller_templates:
+      - name: "image-create-rhel-image"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "Create RHEL image Survey",
+            "description": "Configuration options for image creation",
+            "spec": [
+              {
+                "question_name": "which image?",
+                "question_description": "what type of image do you want to build. Choose from our stadard images",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "rhel_image_blueprint",
+                "choices": "rhel10-soe\nrhel9-soe\nrhel9-pci-dss\nrhel9-cis-server-l1",
+                "default": "rhel10-soe",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              },
+              {
+                "question_name": "which diskformat do you need?",
+                "question_description": "Choose a diskformat for you infrastructure footprint",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "rhel_image_output_type",
+                "choices": "qcow2\nvmdk\nvhd\nami\nmainframe",
+                "default": "qcow2",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "image-push-image-2-quay"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "image-push-image-2-quay",
+            "description": "package disk imgae into container image and push to quay",
+            "spec": [
+              {
+                "question_name": "path to disk file?",
+                "question_description": "Give the exact path to the diskfile",
+                "required": true,
+                "type": "text",
+                "variable": "qcow2_file_path",
+                "default": "/tmp/images/ci-weekly-rhel10-soe-image.qcow2",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "container image name?",
+                "question_description": "which name should your container image have?",
+                "required": true,
+                "type": "text",
+                "variable": "container_image_name",
+                "default": "quay.io/your-org/rhel10-soe",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "ops-vm-power-management"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "VM Power Management Survey",
+            "description": "Power on or off a single VM or all VMs in a namespace",
+            "spec": [
+              {
+                "question_name": "VM Name",
+                "question_description": "Name of the VM to manage (leave empty to manage all VMs in namespace)",
+                "required": false,
+                "type": "text",
+                "variable": "vm_name",
+                "default": "",
+                "min": 0,
+                "max": 128,
+                "new_question": true
+              },
+              {
+                "question_name": "Namespace",
+                "question_description": "OpenShift namespace containing the VM(s)",
+                "required": true,
+                "type": "text",
+                "variable": "vm_namespace",
+                "default": "default",
+                "min": 1,
+                "max": 64,
+                "new_question": true
+              },
+              {
+                "question_name": "Power State",
+                "question_description": "Turn VM(s) on or off",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "vm_power_state",
+                "choices": "on\noff",
+                "default": "on",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "ops-restore-from-vm-snapshot"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "Restore from VM Snapshot Survey",
+            "description": "Restore a VM from a snapshot",
+            "spec": [
+              {
+                "question_name": "which snapshot",
+                "question_description": "What is the name of the snapshot you want to restore from?",
+                "required": true,
+                "type": "text",
+                "variable": "snapshot_name",
+                "default": "",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "which namespace?",
+                "question_description": "in which namespace is the snapshot located?",
+                "required": true,
+                "type": "text",
+                "variable": "vm_namespace",
+                "default": "",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "ops-rhel-deploy-vm"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "Deploy RHEL VM Survey",
+            "description": "Deploy a new RHEL virtual machine",
+            "spec": [
+              {
+                "question_name": "name?",
+                "question_description": "name of your vm",
+                "required": true,
+                "type": "text",
+                "variable": "vm_name",
+                "default": "",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "which namespace?",
+                "question_description": "in which namespace is the snapshot located?",
+                "required": true,
+                "type": "text",
+                "variable": "vm_namespace",
+                "default": "",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "which image?",
+                "question_description": "from which image do you want to create your vm?",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "datasource_name",
+                "choices": "rhel10-soe\nrhel9-soe\nrhel9-pci-dss\nrhel9-cis-server-l1",
+                "default": "rhel10-soe",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              },
+              {
+                "question_name": "which instance type?",
+                "question_description": "how much resources does it need?",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "vm_instance_type",
+                "choices": "u1.small\nu1.medium\nu1.large\nu1.xlarge",
+                "default": "u1.small",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              },
+              {
+                "question_name": "vlan?",
+                "question_description": "Except pod network, which vlan do you need?",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "vlan_network",
+                "choices": "vlan10\nvlan251\nvlan252",
+                "default": "vlan251",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              },
+              {
+                "question_name": "start vm after deployment?",
+                "question_description": "",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "start_vm",
+                "choices": "true\nfalse",
+                "default": "true",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "ops-rhel-patch-vms"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "Patch RHEL VMs Survey",
+            "description": "Patch VMs with latest updates",
+            "spec": [
+              {
+                "question_name": "which namespace?",
+                "question_description": "",
+                "required": true,
+                "type": "text",
+                "variable": "vm_namespace",
+                "default": "operations",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "patch all vms in namespace?",
+                "question_description": "",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "upgrade_all_in_namespace",
+                "choices": "true\nfalse",
+                "default": "false",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              },
+              {
+                "question_name": "If not all vms, which vm?",
+                "question_description": "",
+                "required": false,
+                "type": "text",
+                "variable": "vm_name",
+                "default": "",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "Auto-reboot if kernel upgraded?",
+                "question_description": "",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "reboot_after_upgrade",
+                "choices": "true\nfalse",
+                "default": "false",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              },
+              {
+                "question_name": "Skip packages with dependency issues?",
+                "question_description": "",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "skip_broken",
+                "choices": "true\nfalse",
+                "default": "false",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "ops-vm-snapshot"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "VM Snapshot Survey",
+            "description": "Create a snapshot of a VM",
+            "spec": [
+              {
+                "question_name": "which vm?",
+                "question_description": "",
+                "required": true,
+                "type": "text",
+                "variable": "vm_name",
+                "default": "",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "which namespace?",
+                "question_description": "",
+                "required": true,
+                "type": "text",
+                "variable": "vm_namespace",
+                "default": "",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "ops-win-deploy-vm"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "Deploy Windows VM Survey",
+            "description": "Deploy a new Windows virtual machine",
+            "spec": [
+              {
+                "question_name": "name?",
+                "question_description": "name of your vm",
+                "required": true,
+                "type": "text",
+                "variable": "vm_name",
+                "default": "",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "which namespace?",
+                "question_description": "in which namespace is the snapshot located?",
+                "required": true,
+                "type": "text",
+                "variable": "vm_namespace",
+                "default": "",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "which image?",
+                "question_description": "from which image do you want to create your vm?",
+                "required": true,
+                "type": "text",
+                "variable": "datasource_name",
+                "default": "win2k22",
+                "min": 1,
+                "max": 64,
+                "new_question": true
+              },
+              {
+                "question_name": "which instance type?",
+                "question_description": "how much resources does it need?",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "vm_instance_type",
+                "choices": "u1.small\nu1.medium\nu1.large\nu1.xlarge",
+                "default": "u1.large",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              },
+              {
+                "question_name": "vlan?",
+                "question_description": "Except pod network, which vlan do you need?",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "vlan_network",
+                "choices": "vlan10\nvlan251\nvlan252",
+                "default": "vlan251",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              },
+              {
+                "question_name": "start vm after deployment?",
+                "question_description": "",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "start_vm",
+                "choices": "true\nfalse",
+                "default": "true",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "ops-win-enable-iis"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "Enable IIS Survey",
+            "description": "Enable IIS on a Windows VM",
+            "spec": [
+              {
+                "question_name": "which vm?",
+                "question_description": "where do you want to enable iis?",
+                "required": true,
+                "type": "text",
+                "variable": "vm_name",
+                "default": "",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "iis test message?",
+                "question_description": "hello world message from iis?",
+                "required": true,
+                "type": "text",
+                "variable": "iis_test_message",
+                "default": "say something nice",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "ops-win-install-packages"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "Install Windows Packages Survey",
+            "description": "Install packages from Chocolatey on a Windows VM",
+            "spec": [
+              {
+                "question_name": "which vm?",
+                "question_description": "where do you want to install packages?",
+                "required": true,
+                "type": "text",
+                "variable": "vm_name",
+                "default": "win2k22-aquamarine-dragonfly-68",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "package 1",
+                "question_description": "First package name from Chocolatey (e.g., git, python, vscode, nodejs)",
+                "required": true,
+                "type": "text",
+                "variable": "package_1_name",
+                "default": "",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "package 1 version? (Optional)",
+                "question_description": "Leave empty for latest version, or specify version like \"3.11.0\"",
+                "required": false,
+                "type": "text",
+                "variable": "package_1_version",
+                "default": "",
+                "min": 0,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "package 2",
+                "question_description": "2nd package name from Chocolatey (e.g., git, python, vscode, nodejs)",
+                "required": false,
+                "type": "text",
+                "variable": "package_2_name",
+                "default": "",
+                "min": 0,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "package 2 version? (Optional)",
+                "question_description": "Leave empty for latest version, or specify version like \"3.11.0\"",
+                "required": false,
+                "type": "text",
+                "variable": "package_2_version",
+                "default": "",
+                "min": 0,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "package 3",
+                "question_description": "3rd package name from Chocolatey (e.g., git, python, vscode, nodejs)",
+                "required": false,
+                "type": "text",
+                "variable": "package_3_name",
+                "default": "",
+                "min": 0,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "package 3 version? (Optional)",
+                "question_description": "Leave empty for latest version, or specify version like \"3.11.0\"",
+                "required": false,
+                "type": "text",
+                "variable": "package_3_version",
+                "default": "",
+                "min": 0,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "package 4",
+                "question_description": "4th package name from Chocolatey (e.g., git, python, vscode, nodejs)",
+                "required": false,
+                "type": "text",
+                "variable": "package_4_name",
+                "default": "",
+                "min": 0,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "package 4 version? (Optional)",
+                "question_description": "Leave empty for latest version, or specify version like \"3.11.0\"",
+                "required": false,
+                "type": "text",
+                "variable": "package_4_version",
+                "default": "",
+                "min": 0,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "package 5",
+                "question_description": "5th package name from Chocolatey (e.g., git, python, vscode, nodejs)",
+                "required": false,
+                "type": "text",
+                "variable": "package_5_name",
+                "default": "",
+                "min": 0,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "package 5 version? (Optional)",
+                "question_description": "Leave empty for latest version, or specify version like \"3.11.0\"",
+                "required": false,
+                "type": "text",
+                "variable": "package_5_version",
+                "default": "",
+                "min": 0,
+                "max": 1024,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "ops-webapp-setup"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "WebApp Setup Survey",
+            "description": "Deploy web application to VMs",
+            "spec": [
+              {
+                "question_name": "which vms?",
+                "question_description": "where do you want to deploy the webapp?",
+                "required": true,
+                "type": "text",
+                "variable": "vm_name",
+                "default": "namespace_e_commerce",
+                "min": 1,
+                "max": 1024,
+                "new_question": true
+              },
+              {
+                "question_name": "App version?",
+                "question_description": "",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "app_version",
+                "choices": "1.0.0\n2.0.0",
+                "default": "1.0.0",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "ops-webapp-rolling-upgrade"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "WebApp Rolling Upgrade Survey",
+            "description": "Rolling upgrade for web application",
+            "spec": [
+              {
+                "question_name": "which vms?",
+                "question_description": "which vms are part of the web app frontend",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "vm_name",
+                "choices": "web-01\nweb-02\nweb-03\nnamespace_e_commerce",
+                "default": "namespace_e_commerce",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              },
+              {
+                "question_name": "update type?",
+                "question_description": "do you want to update application code, the os or both?",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "update_type",
+                "choices": "code\nos\nboth",
+                "default": "code",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              },
+              {
+                "question_name": "Which target version (answer if code or both is chosen)",
+                "question_description": "what is the target version of your application",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "target_version",
+                "choices": "1.0.1\n2.0.0",
+                "default": "2.0.0",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              }
+            ]
+          }
+
+      - name: "ops-vm-hot-add-disk"
+        survey_enabled: true
+        survey: |
+          {
+            "name": "Hot Add Disk Survey",
+            "description": "Add a disk to a running VM",
+            "spec": [
+              {
+                "question_name": "which vm?",
+                "question_description": "which vm do you want to add disk to?",
+                "required": true,
+                "type": "text",
+                "variable": "vm_name",
+                "default": "",
+                "min": 1,
+                "max": 30,
+                "new_question": true
+              },
+              {
+                "question_name": "which namespace?",
+                "question_description": "where is the vm?",
+                "required": true,
+                "type": "text",
+                "variable": "vm_namespace",
+                "default": "",
+                "min": 1,
+                "max": 30,
+                "new_question": true
+              },
+              {
+                "question_name": "size of new disk?",
+                "question_description": "capacity requirement for new disk?",
+                "required": true,
+                "type": "text",
+                "variable": "disk_size",
+                "default": "3Gi",
+                "min": 1,
+                "max": 30,
+                "new_question": true
+              },
+              {
+                "question_name": "storage class?",
+                "question_description": "which storage class do you want?",
+                "required": true,
+                "type": "multiplechoice",
+                "variable": "storage_class",
+                "choices": "ocs-storagecluster-ceph-rbd-virtualization\nocs-storagecluster-ceph-rbd (default)",
+                "default": "ocs-storagecluster-ceph-rbd-virtualization",
+                "min": 0,
+                "max": 0,
+                "new_question": true
+              }
+            ]
+          }
+
+
+  roles:
+    - infra.aap_configuration.controller_job_templates
+
+  post_tasks:
+    - name: Display completion message
+      debug:
+        msg: "Successfully configured survey on job templates"

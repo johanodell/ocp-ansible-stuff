@@ -1,0 +1,14 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: JobTemplate
+metadata:
+  name: image-create-rhel-image
+spec:
+  connection_secret: aap-controller-access
+  name: image-create-rhel-image
+  project: ansible-playbooks 
+  playbook: image_builder.yaml
+  inventory: openshift-endor
+  execution_environment: "Default execution environment" 
+  credentials: 
+    - "openshift-endor"
+    - "infra-machine"

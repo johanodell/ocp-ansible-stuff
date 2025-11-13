@@ -1,0 +1,122 @@
+---
+- name: Restore VirtualMachine from Snapshot
+  hosts: localhost
+  gather_facts: false
+  vars:
+    snapshot_name: ""
+    vm_namespace: "default"
+    # Set to true to delete original VM before restore, or provide new_vm_name to restore to different VM
+    delete_original: false
+    new_vm_name: ""
+
+  tasks:
+    - name: Set target VM name
+      set_fact:
+        target_vm_name: "{{ new_vm_name if new_vm_name | length > 0 else snapshot_name.split('-snapshot-')[0] }}"
+
+    - name: Stop original VM if deleting
+      kubernetes.core.k8s:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ target_vm_name }}"
+        namespace: "{{ vm_namespace }}"
+        state: present
+        definition:
+          spec:
+            runStrategy: Halted
+      when: delete_original | bool
+      ignore_errors: true
+
+    - name: Wait for VM to stop
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachineInstance
+        name: "{{ target_vm_name }}"
+        namespace: "{{ vm_namespace }}"
+      register: vmi_status
+      until: vmi_status.resources | length == 0
+      retries: 30
+      delay: 10
+      when: delete_original | bool
+      ignore_errors: true
+
+    - name: Delete original VM
+      kubernetes.core.k8s:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ target_vm_name }}"
+        namespace: "{{ vm_namespace }}"
+        state: absent
+      when: delete_original | bool
+
+    - name: Wait for VM deletion
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ target_vm_name }}"
+        namespace: "{{ vm_namespace }}"
+      register: vm_check
+      until: vm_check.resources | length == 0
+      retries: 30
+      delay: 10
+      when: delete_original | bool
+
+    - name: Stop target VM before restore
+      kubernetes.core.k8s:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ target_vm_name }}"
+        namespace: "{{ vm_namespace }}"
+        state: present
+        definition:
+          spec:
+            runStrategy: Halted
+      when: not (delete_original | bool)
+      ignore_errors: true
+
+    - name: Wait for target VM to stop before restore
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachineInstance
+        name: "{{ target_vm_name }}"
+        namespace: "{{ vm_namespace }}"
+      register: vmi_status_restore
+      until: vmi_status_restore.resources | length == 0
+      retries: 30
+      delay: 10
+      when: not (delete_original | bool)
+
+    - name: Create VirtualMachineRestore
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: snapshot.kubevirt.io/v1beta1
+          kind: VirtualMachineRestore
+          metadata:
+            name: "{{ snapshot_name }}-restore-{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
+            namespace: "{{ vm_namespace }}"
+          spec:
+            target:
+              apiGroup: kubevirt.io
+              kind: VirtualMachine
+              name: "{{ target_vm_name }}"
+            virtualMachineSnapshotName: "{{ snapshot_name }}"
+      register: restore_result
+
+    - name: Wait for restore to complete
+      kubernetes.core.k8s_info:
+        api_version: snapshot.kubevirt.io/v1beta1
+        kind: VirtualMachineRestore
+        name: "{{ restore_result.result.metadata.name }}"
+        namespace: "{{ vm_namespace }}"
+      register: restore_status
+      until:
+        - restore_status.resources | length > 0
+        - restore_status.resources[0].status.complete is defined
+        - restore_status.resources[0].status.complete == true
+      retries: 30
+      delay: 10
+
+    - name: Display restore information
+      debug:
+        msg: "VM {{ target_vm_name }} restored successfully from snapshot {{ snapshot_name }}"

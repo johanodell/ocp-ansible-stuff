@@ -1,0 +1,13 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: JobTemplate
+metadata:
+  name: ops-win-enable-iis
+spec:
+  connection_secret: aap-controller-access
+  name: ops-win-enable-iis
+  project: ansible-playbooks 
+  playbook: windows-install-iis.yaml
+  inventory: openshift-endor
+  execution_environment: "ansible-ee-windows" 
+  credentials: 
+    - "windows-admin"

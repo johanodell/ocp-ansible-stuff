@@ -1,0 +1,56 @@
+---
+- name: Build, tag, and push container image to Quay
+  hosts: rhel10-image-builder
+  become: true
+  vars:
+    qcow2_file_path: /tmp/images/ci-weekly-rhel9-image.qcow2
+    container_image_name: quay.io/your-org/rhel9-pci-dss
+    container_image_tag: latest  #"{{ ansible_date_time.date | strftime('%Y-%m-%d') }}"
+
+    quay_username: "{{ quay_username }}"
+    quay_password: "{{ quay_password }}"
+
+  tasks:
+    - name: Create a directory for containerfile
+      ansible.builtin.file:
+        path: /tmp/container_build
+        state: directory
+
+    - name: Copy QCOW2 file to the container build directory
+      ansible.builtin.copy:
+        src: "{{ qcow2_file_path }}"
+        dest: /tmp/container_build/
+        remote_src: yes
+        mode: '0644'
+
+    - name: Create Containerfile for the container
+      ansible.builtin.copy:
+        dest: /tmp/container_build/Containerfile
+        content: |
+          FROM scratch
+          ADD ci-weekly-rhel9-image.qcow2 /disk/
+
+    - name: Build the container image using Podman
+      containers.podman.podman_image:
+        name: "{{ container_image_name }}"
+        tag: "{{ container_image_tag }}"
+        path: /tmp/container_build
+        state: present
+
+    - name: Log in to Quay
+      containers.podman.podman_login:
+        registry: quay.io
+        username: "{{ quay_username }}"
+        password: "{{ quay_password }}"
+
+    - name: Tag the container image
+      containers.podman.podman_image:
+        name: "{{ container_image_name }}"
+        tag: "{{ container_image_tag }}"
+        push: false  # Do not push yet, just tag
+
+    - name: Push the container image to Quay
+      containers.podman.podman_image:
+        name: "{{ container_image_name }}"
+        tag: "{{ container_image_tag }}"
+        push: true

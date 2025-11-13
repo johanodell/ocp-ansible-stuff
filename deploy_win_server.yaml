@@ -1,0 +1,150 @@
+---
+- name: Deploy Windows Server VM in OpenShift Virtualization
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    vm_name:
+    vm_namespace: my-vm-namespace
+    vm_disk_size: 60Gi                      # Windows needs more space than Linux
+    vm_instance_type: u1.large              # Windows needs more resources
+    vm_preference: windows.2k22.virtio      # Windows Server 2022 preference
+    datasource_name: win2k22                # DataSource created by Tekton pipeline
+    datasource_namespace: openshift-virtualization-os-images
+    vlan_network: vlan10                    # Optional: external network
+
+  tasks:
+
+  - name: Create Windows Server VM using kubevirt_vm module with InstanceType
+    redhat.openshift_virtualization.kubevirt_vm:
+      state: present
+      name: "{{ vm_name }}"
+      namespace: "{{ vm_namespace }}"
+      running: true
+
+      instancetype:
+        name: "{{ vm_instance_type }}"          # ClusterInstancetype CR
+
+      preference:
+        name: "{{ vm_preference }}"
+        kind: VirtualMachineClusterPreference
+
+      labels:
+        app: "{{ vm_name }}"
+        os: windows
+        os.template.kubevirt.io/win2k22: "true"
+
+      annotations:
+        template.kubevirt.io/provider: "Red Hat"
+        template.kubevirt.io/provider-url: "https://www.redhat.com"
+        description: "Windows Server 2022 VM - Sysprepped image from Tekton pipeline"
+
+      data_volume_templates:
+        - metadata:
+            name: "{{ vm_name }}-rootdisk"
+          spec:
+            sourceRef:
+              kind: DataSource
+              name: "{{ datasource_name }}"
+              namespace: "{{ datasource_namespace }}"
+            storage:
+              accessModes: [ReadWriteOnce]
+              volumeMode: Block
+              resources:
+                requests:
+                  storage: "{{ vm_disk_size }}"
+
+      # VM spec – CPU and memory defined by InstanceType (u1.large = 2 vCPU, 8Gi RAM)
+      spec:
+        domain:
+          devices:
+            disks:
+              - name: "{{ vm_name }}-rootdisk"
+                disk:
+                  bus: virtio  # VirtIO drivers already in sysprepped image
+            interfaces:
+              - name: default
+                masquerade: {}
+              - name: "{{ vlan_network }}"
+                bridge: {}
+            tpm: {}            # TPM device for Windows Server 2022
+            rng: {}            # Random number generator
+          clock:
+            utc: {}
+            timer:
+              hpet:
+                present: false
+              pit:
+                tickPolicy: delay
+              rtc:
+                tickPolicy: catchup
+              hyperv: {}
+          features:
+            acpi: {}
+            apic: {}
+            hyperv:
+              relaxed: {}
+              vapic: {}
+              spinlocks:
+                spinlocks: 8191
+              vpindex: {}
+              runtime: {}
+              synic: {}
+              synictimer:
+                direct: {}
+              reset: {}
+              frequencies: {}
+              reenlightenment: {}
+              tlbflush: {}
+              ipi: {}
+            smm:
+              enabled: true
+          firmware:
+            bootloader:
+              efi:
+                secureBoot: true  # Secure boot for Windows
+          machine:
+            type: q35
+
+        volumes:
+          - name: "{{ vm_name }}-rootdisk"
+            dataVolume:
+              name: "{{ vm_name }}-rootdisk"
+
+        networks:
+          - name: default
+            pod: {}
+          - name: "{{ vlan_network }}"
+            multus:
+              networkName: "default/{{ vlan_network }}"
+
+  - name: Display deployment information
+    ansible.builtin.debug:
+      msg:
+        - "=========================================="
+        - "Windows Server VM Deployment Started"
+        - "=========================================="
+        - "VM Name: {{ vm_name }}"
+        - "Namespace: {{ vm_namespace }}"
+        - "Instance Type: {{ vm_instance_type }} (2 vCPU, 8Gi RAM)"
+        - "Disk Size: {{ vm_disk_size }}"
+        - "DataSource: {{ datasource_name }}"
+        - "Image: Pre-sysprepped Windows Server 2022"
+        - "=========================================="
+        - "IMPORTANT NOTES:"
+        - "1. Using pre-sysprepped image from Tekton pipeline"
+        - "2. First boot will complete Windows setup (5-10 minutes)"
+        - "3. VM will reboot once automatically"
+        - "4. RDP and WinRM should be pre-configured in image"
+        - "=========================================="
+        - "To monitor VM status:"
+        - "  oc get vm {{ vm_name }} -n {{ vm_namespace }}"
+        - "  oc get vmi {{ vm_name }} -n {{ vm_namespace }}"
+        - ""
+        - "To connect via console:"
+        - "  virtctl console {{ vm_name }} -n {{ vm_namespace }}"
+        - ""
+        - "To get VM IP address:"
+        - "  oc get vmi {{ vm_name }} -n {{ vm_namespace }} -o jsonpath='{.status.interfaces[0].ipAddress}'"
+        - "=========================================="

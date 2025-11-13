@@ -1,0 +1,13 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: JobTemplate
+metadata:
+  name:  internal-it-aap-post-configuration
+spec:
+  connection_secret: aap-controller-access
+  name: internal-it-aap-post-configuration
+  project: internal-it
+  playbook: add-surveys-test-2.yaml
+  inventory: openshift-endor
+  execution_environment: "Default execution environment" 
+  credentials: 
+    - "aap"

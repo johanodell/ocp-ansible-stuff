@@ -1,0 +1,90 @@
+---
+- name: Install Windows Packages via Chocolatey (AAP Survey Friendly)
+  hosts: "{{ vm_name }}"
+  gather_facts: yes
+
+  vars:
+    # Survey variables - will be populated by AAP survey
+    package_1_name: ""
+    package_1_version: ""
+
+    package_2_name: ""
+    package_2_version: ""
+
+    package_3_name: ""
+    package_3_version: ""
+
+    package_4_name: ""
+    package_4_version: ""
+
+    package_5_name: ""
+    package_5_version: ""
+
+  tasks:
+    - name: Build package list from survey inputs
+      ansible.builtin.set_fact:
+        packages_to_install: >-
+          {{
+            [
+              {'name': package_1_name, 'version': package_1_version},
+              {'name': package_2_name, 'version': package_2_version},
+              {'name': package_3_name, 'version': package_3_version},
+              {'name': package_4_name, 'version': package_4_version},
+              {'name': package_5_name, 'version': package_5_version}
+            ] | selectattr('name', 'ne', '') | list
+          }}
+
+    - name: Validate at least one package is provided
+      ansible.builtin.assert:
+        that:
+          - packages_to_install | length > 0
+        fail_msg: "Must provide at least one package name"
+        success_msg: "{{ packages_to_install | length }} package(s) will be installed"
+
+    - name: Display installation plan
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Chocolatey Package Installation"
+          - "=========================================="
+          - "Host: {{ inventory_hostname }}"
+          - "Packages to install: {{ packages_to_install | length }}"
+          - "{{ packages_to_install | map(attribute='name') | join(', ') }}"
+          - "=========================================="
+
+    - name: Ensure Chocolatey is installed
+      win_chocolatey:
+        name: chocolatey
+        state: present
+
+    - name: Install packages
+      win_chocolatey:
+        name: "{{ item.name }}"
+        state: present
+        version: "{{ item.version if item.version != '' else omit }}"
+        timeout: 600
+      loop: "{{ packages_to_install }}"
+      register: install_results
+      failed_when: false
+
+    - name: Display installation results
+      ansible.builtin.debug:
+        msg:
+          - "Package: {{ item.item.name }}"
+          - "Version: {{ item.item.version if item.item.version != '' else 'latest' }}"
+          - "Status: {{ '✅ Success' if not item.failed else '❌ Failed' }}"
+          - "---"
+      loop: "{{ install_results.results }}"
+
+    - name: Display final summary
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Installation Summary"
+          - "=========================================="
+          - "Total packages: {{ packages_to_install | length }}"
+          - "Successfully installed: {{ install_results.results | selectattr('failed', 'equalto', false) | list | length }}"
+          - "Failed: {{ install_results.results | selectattr('failed', 'equalto', true) | list | length }}"
+          - "=========================================="
+          - "View installed packages: choco list --local-only"
+          - "=========================================="

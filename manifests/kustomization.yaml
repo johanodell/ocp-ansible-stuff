@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aap
+
+resources:
+  # Job templates (Wave 1 - project should already exist in AAP Controller)
+  # Image Management
+  - jobtemplate-image-create-rhel-image.yaml
+  - jobtemplate-image-push-image-2-quay.yaml
+
+  # VM Operations - RHEL
+  - jobtemplate-ops-restore-from-vm-snapshot.yaml
+  - jobtemplate-ops-rhel-deploy-vm.yaml
+  - jobtemplate-ops-rhel-patch-vms.yaml
+  - jobtemplate-ops-vm-hot-add-disk.yaml
+  - jobtemplate-ops-vm-power-management.yaml
+  - jobtemplate-ops-vm-snapshot.yaml
+
+  # VM Operations - WebApps
+  - jobtemplate-ops-webapp-rolling-upgrade-demo.yaml
+  - jobtemplate-ops-webapp-setup.yaml
+
+  # VM Operations - Windows
+  - jobtemplate-ops-win-deploy-vm.yaml
+  - jobtemplate-ops-win-enable-iis.yaml
+  - jobtemplate-ops-win-install-packages.yaml
+
+  # Post-Configuration
+  - jobtemplate-internal-it-aap-post-configuration.yaml
+
+  # Note: Post-configuration job (add-surveys-test-2.yaml) should be run manually
+  # The ArgoCD PostSync hook is disabled due to AWX Resource Operator issues
+
+patches:
+  # Add sync-wave annotation to all job templates (wave 1)
+  # Note: Project must already exist in AAP Controller before deploying
+  - target:
+      kind: JobTemplate
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "1"
+          argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true

@@ -1,0 +1,50 @@
+---
+- name: Start/Stop VirtualMachines
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # Set to specific VM name or leave empty to affect all VMs in namespace
+    vm_name: ""
+    vm_namespace: "default"
+    # Set power state: on (start), off (stop)
+    vm_power_state: "off"
+    # Dictionary mapping user-friendly values to KubeVirt runStrategy
+    power_state_map:
+      on: "Always"
+      off: "Halted"
+
+  tasks:
+    - name: Set VirtualMachine run strategy (specific VM)
+      kubernetes.core.k8s:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ vm_name }}"
+        namespace: "{{ vm_namespace }}"
+        state: present
+        definition:
+          spec:
+            runStrategy: "{{ power_state_map[vm_power_state] }}"
+      when: vm_name | length > 0
+
+    - name: Get all VirtualMachines in namespace
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        namespace: "{{ vm_namespace }}"
+      register: all_vms
+      when: vm_name | length == 0
+
+    - name: Set run strategy for all VirtualMachines in namespace
+      kubernetes.core.k8s:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ vm_namespace }}"
+        state: present
+        definition:
+          spec:
+            runStrategy: "{{ power_state_map[vm_power_state] }}"
+      loop: "{{ all_vms.resources }}"
+      when:
+        - vm_name | length == 0
+        - all_vms.resources | length > 0

@@ -1,0 +1,13 @@
+apiVersion: tower.ansible.com/v1alpha1
+kind: JobTemplate
+metadata:
+  name: ops-win-install-packages
+spec:
+  connection_secret: aap-controller-access
+  name: ops-win-install-packages
+  project: ansible-playbooks 
+  playbook: install-windows-packages-aap.yaml
+  inventory: openshift-endor
+  execution_environment: "ansible-ee-windows" 
+  credentials: 
+    - "windows-admin"

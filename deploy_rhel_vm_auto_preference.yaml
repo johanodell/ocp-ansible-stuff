@@ -1,0 +1,114 @@
+---
+- name: Deploy RHEL VM in OpenShift Virtualization
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    vm_name:
+    vm_namespace: my-vm-namespace
+    vm_disk_size: 30Gi
+    vm_instance_type: u1.medium
+    datasource_name: rhel9-pci-dss
+    datasource_namespace: openshift-virtualization-os-images
+    vlan_network: vlan10
+    storage_class: "lvms-nvme-vg-immediate"  # Leave empty for default, or specify a StorageClass with Immediate binding
+    start_vm: true  # Set to false to create VM without starting it (helps with WaitForFirstConsumer)
+
+    # Dictionary mapping datasource to vm_preference
+    datasource_preference_map:
+      rhel9-soe: "rhel.9"
+      rhel9-pci-dss: "rhel.9"
+      rhel9-cis-server-l1: "rhel.9"
+      rhel10-soe: "rhel.10"
+
+  tasks:
+
+  - name: Set VM preference based on datasource
+    set_fact:
+      vm_preference: "{{ datasource_preference_map[datasource_name] | default('rhel.9') }}"
+
+  - name: Display selected preference
+    debug:
+      msg:
+        - "Datasource: {{ datasource_name }}"
+        - "VM Preference: {{ vm_preference }}"
+
+  - name: Create VM using kubevirt_vm module with InstanceType
+    redhat.openshift_virtualization.kubevirt_vm:
+      state: present
+      name: "{{ vm_name }}"
+      namespace: "{{ vm_namespace }}"
+      running: "{{ start_vm }}"
+
+      instancetype:
+        name: "{{ vm_instance_type }}"          # ClusterInstancetype CR
+
+      preference:
+        name: "{{ vm_preference }}"
+        kind: VirtualMachineClusterPreference
+
+      labels:
+        app: "{{ vm_name }}"
+
+      annotations:
+        template.kubevirt.io/provider: "Red Hat"
+        template.kubevirt.io/provider-url: "https://www.redhat.com"
+
+      data_volume_templates:
+        - metadata:
+            name: "{{ vm_name }}-rootdisk"
+          spec:
+            sourceRef:
+              kind: DataSource
+              name: "{{ datasource_name }}"
+              namespace: "{{ datasource_namespace }}"
+            storage:
+              accessModes: [ReadWriteOnce]
+              volumeMode: Block
+              storageClassName: "{{ storage_class if storage_class | length > 0 else omit }}"
+              resources:
+                requests:
+                  storage: "{{ vm_disk_size }}"
+
+      # VM spec – notice there is *no* explicit CPU or memory here
+      spec:
+        domain:
+          devices:
+            disks:
+              - name: "{{ vm_name }}-rootdisk"
+                disk: { bus: virtio }
+              - name: cloudinitdisk
+                disk: { bus: virtio }
+            interfaces:
+              - name: default
+                masquerade: {}
+              - name: "{{ vlan_network }}"
+                bridge: {}
+            rng: {}
+          features:
+            acpi: {}
+            smm: { enabled: true }
+          firmware:
+            bootloader: { efi: {} }
+          machine: { type: q35 }
+
+        volumes:
+          - name: "{{ vm_name }}-rootdisk"
+            dataVolume:
+              name: "{{ vm_name }}-rootdisk"
+          - name: cloudinitdisk
+            cloudInitNoCloud:
+              userData: |
+                #cloud-config
+                user: johan
+                password: redhat123
+                chpasswd:
+                  expire: false
+
+        networks:
+          - name: default
+            pod: {}
+          - name: "{{ vlan_network }}"
+            multus:
+              networkName: "default/{{ vlan_network | default('vlan10') }}"
