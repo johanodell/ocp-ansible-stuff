@@ -1,0 +1,16 @@
+---
+collections:
+  - name: https://github.com/myllynen/rhel-image
+    type: git
+    version: master
+
+  - name: containers.podman
+    version: 1.15.4
+
+  - name: community.general
+
+  - name: prometheus.prometheus
+    src: https://galaxy.ansible.com
+
+  - name: infra.aap_configuration
+    src: https://console.redhat.com/api/automation-hub/content/published/
